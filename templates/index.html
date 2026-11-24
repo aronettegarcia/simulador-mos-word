@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Simulador MOS Word</title><link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<header class="top"><div><b>MOS WORD · SIMULADOR</b><small>MO-100 / MO-110 · Examen práctico</small></div>
+<div id="clock" class="clock">55:00</div><button id="start">Iniciar examen</button></header>
+<main><section class="intro"><h1>Simulación de certificación Microsoft Word</h1><p>Duración: 55 minutos · 8 proyectos · 40 tareas · Aprobación: 700/1000 puntos.</p><p>Descargue cada plantilla, complete las tareas en Microsoft Word y cargue el archivo resuelto antes de que finalice el tiempo.</p><div id="alerts" role="status"></div></section>
+<nav id="tabs" class="tabs"></nav><section id="project" class="project"><h2>Comience el examen</h2><p>Seleccione «Iniciar examen» para activar el cronómetro y habilitar las entregas.</p></section>
+<section id="report" class="report"></section></main>
+<script>
+const projects = {{ projects|tojson }};
+let deadline=null, timer=null, started=false, scores=Array(8).fill(null);
+const $=s=>document.querySelector(s);
+function renderTabs(){ $("#tabs").innerHTML=projects.map((p,i)=>`<button class="tab ${i===0?'active':''}" data-i="${i}">Proyecto ${i+1}</button>`).join("");
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>showProject(+b.dataset.i));}
+function showProject(i){document.querySelectorAll(".tab").forEach((b,j)=>b.classList.toggle("active",i===j));
+const p=projects[i]; $("#project").innerHTML=`<h2>${i+1}. ${p.name}</h2><p><b>Archivo:</b> ${p.file}</p><button class="download" ${!started?'disabled':''} onclick="location.href='/download/${i}'">Descargar plantilla .docx</button><h3>Tareas del proyecto</h3><ol>${p.tasks.map((t,j)=>`<li>${t[0]}<div class="taskstate"><select aria-label="Estado tarea"><option>Pendiente</option><option>Completada</option><option>Para revisar</option></select></div></li>`).join("")}</ol><div class="upload"><label>Subir archivo resuelto (.docx)</label><input type="file" id="file" accept=".docx" ${!started?'disabled':''}><button id="send" ${!started?'disabled':''}>Evaluar proyecto</button><span id="status"></span></div>${scores[i]!==null?`<p class="score">Resultado: ${scores[i].score}/${scores[i].total} tareas aprobadas</p>`:''}`;
+$("#send")?.addEventListener("click",()=>upload(i));}
+async function upload(i){if(!started||!deadline||Date.now()>=deadline){$("#status").textContent="Tiempo agotado o examen no iniciado.";return;}
+const f=$("#file").files[0];if(!f){$("#status").textContent="Seleccione un archivo.";return;}
+const fd=new FormData();fd.append("file",f);$("#send").disabled=true;$("#status").textContent="Evaluando…";
+try{const r=await fetch(`/upload/${i}`,{method:"POST",body:fd});const data=await r.json();if(!r.ok)throw Error(data.error||"Error");
+scores[i]=data;$("#status").textContent=`${data.score} de ${data.total} tareas aprobadas.`;
+$("#report").innerHTML=`<h2>Reporte · ${projects[i].name}</h2><p><b>Resultado global provisional:</b> ${data.global_points}/1000 puntos · ${data.approved?'Aprobación alcanzada':'Aún no alcanza 700 puntos'} · ${data.global_passed}/${data.global_total} tareas aprobadas en los proyectos entregados.</p><ul>${data.results.map(x=>`<li class="${x.passed?'ok':'bad'}">${x.passed?'✓':'✗'} ${x.task}<small>${x.passed?'Aprobada':'Pendiente'} · ${x.guide}</small></li>`).join("")}</ul>`;
+}catch(e){$("#status").textContent=e.message;}finally{$("#send").disabled=false;}}
+function tick(){let sec=Math.max(0,Math.ceil((deadline-Date.now())/1000));let m=String(Math.floor(sec/60)).padStart(2,"0"),s=String(sec%60).padStart(2,"0");$("#clock").textContent=`${m}:${s}`;
+$("#clock").classList.toggle("warn",sec<=600&&sec>300);$("#clock").classList.toggle("danger",sec<=300);
+if(sec===600)$("#alerts").textContent="Quedan 10 minutos.";if(sec===300)$("#alerts").textContent="Advertencia: quedan 5 minutos.";
+if(sec===0){clearInterval(timer);started=false;$("#alerts").textContent="Tiempo agotado. Se bloquearon las entregas.";document.querySelectorAll("input,button.download,#send").forEach(x=>x.disabled=true);}}
+$("#start").onclick=async()=>{if(started)return;const r=await fetch("/start",{method:"POST"});const d=await r.json();deadline=d.deadline*1000;started=true;$("#start").disabled=true;showProject(0);document.querySelectorAll(".download,#file,#send").forEach(x=>x.disabled=false);timer=setInterval(tick,250);tick();};
+renderTabs();showProject(0);
+</script></body></html>
